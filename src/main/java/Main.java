@@ -11,6 +11,7 @@ public class Main {
         ServerSocket serverSocket = null;
         Socket clientSocket = null;
         int port = 6379;
+        String response = "+PONG\\r\\n";
         try {
           serverSocket = new ServerSocket(port);
           // Since the tester restarts your program quite often, setting SO_REUSEADDR
@@ -18,6 +19,7 @@ public class Main {
           serverSocket.setReuseAddress(true);
           // Wait for connection from client.
           clientSocket = serverSocket.accept();
+          clientSocket.getOutputStream().write(response.getBytes());
         } catch (IOException e) {
           System.out.println("IOException: " + e.getMessage());
         } finally {
