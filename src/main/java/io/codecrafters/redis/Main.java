@@ -1,11 +1,18 @@
 package io.codecrafters.redis;
 
+import io.codecrafters.redis.protocol.RespArray;
+import io.codecrafters.redis.protocol.RespBulkString;
+import io.codecrafters.redis.protocol.RespParser;
+import io.codecrafters.redis.protocol.RespValue;
 import io.codecrafters.redis.server.RedisServer;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 
 public class Main {
   public static void main(String[] args){
@@ -41,5 +48,21 @@ public class Main {
 //            System.out.println("IOException: " + e.getMessage());
 //          }
 //        }
+      //String msg = "*2\r\n$4\r\nECHO\r\n$3\r\nHEY\r\n";
+//      String msg="$-1\r\n";
+//      ByteBuffer buffer = ByteBuffer.allocate(1024);
+//      buffer.put(msg.getBytes(StandardCharsets.UTF_8));
+//      buffer.flip(); // <-- important: switch to read mode before parsing
+//
+//      RespParser parser = new RespParser();
+//      Optional<RespValue> opt = parser.parse(buffer);
+//
+//      if (opt.isEmpty()) {
+//          System.out.println("Incomplete data");
+//          return;
+//      }
+//
+//      RespValue value = opt.get();
+//      System.out.println(value);
   }
 }
