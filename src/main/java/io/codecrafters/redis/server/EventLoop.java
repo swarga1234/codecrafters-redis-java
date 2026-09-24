@@ -1,6 +1,8 @@
 package io.codecrafters.redis.server;
 
+import io.codecrafters.redis.factory.CommandRegistry;
 import io.codecrafters.redis.protocol.*;
+import io.codecrafters.redis.rediscommand.TypicalRedisCommand;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -148,19 +150,27 @@ public class EventLoop {
             if(commandList.isEmpty()){
                 return;
             }
-            String cmdName = extractString(commandList.getFirst()).toUpperCase();
-
-            switch (cmdName){
-                case "PING":
-                    RespValue reponse = new RespSimpleString("PONG");
-                    sendResponse(clientConnection, selectionKey, reponse);
-                    break;
-                case "ECHO":
-                    if (commandList.size() > 1) {
-                        RespValue echo = commandList.get(1);
-                        sendResponse(clientConnection, selectionKey, echo);
-                    }
-                    break;
+//            String cmdName = extractString(commandList.getFirst()).toUpperCase();
+//
+//            switch (cmdName){
+//                case "PING":
+//                    RespValue reponse = new RespSimpleString("PONG");
+//                    sendResponse(clientConnection, selectionKey, reponse);
+//                    break;
+//                case "ECHO":
+//                    if (commandList.size() > 1) {
+//                        RespValue echo = commandList.get(1);
+//                        sendResponse(clientConnection, selectionKey, echo);
+//                    }
+//                    break;
+//            }
+            String cmdName = commandList.getFirst().getStringValue().toUpperCase();
+            try {
+                TypicalRedisCommand redisCommand = CommandRegistry.getCommand(cmdName);
+                RespValue response = redisCommand.execute(commandList.subList(1, commandList.size()));
+                sendResponse(clientConnection,selectionKey, response);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
             }
         }
 
@@ -191,9 +201,4 @@ public class EventLoop {
         }
     }
 
-    private String extractString(RespValue val) {
-        if (val instanceof RespBulkString bs) return bs.value();
-        if (val instanceof RespSimpleString ss) return ss.value();
-        return "";
-    }
 }
