@@ -2,6 +2,7 @@ package io.codecrafters.redis.dispatcher;
 
 import io.codecrafters.redis.factory.CommandRegistry;
 import io.codecrafters.redis.protocol.RespArray;
+import io.codecrafters.redis.protocol.RespError;
 import io.codecrafters.redis.protocol.RespValue;
 import io.codecrafters.redis.protocol.RespWriter;
 import io.codecrafters.redis.rediscommand.TypicalRedisCommand;
@@ -20,13 +21,19 @@ public class CommandDispatcher {
             if(commandList.isEmpty()){
                 return;
             }
-            String cmdName = commandList.getFirst().getStringValue().toUpperCase();
+            String cmdName = commandList.getFirst().getStringValue();
+            if(cmdName==null || cmdName.isBlank())
+            {
+                sendResponse(clientConnection, selectionKey, new RespError("Empty Command"));
+                return;
+            }
+
             try {
-                TypicalRedisCommand redisCommand = CommandRegistry.getCommand(cmdName);
+                TypicalRedisCommand redisCommand = CommandRegistry.getCommand(cmdName.toUpperCase());
                 RespValue response = redisCommand.execute(commandList.subList(1, commandList.size()));
                 sendResponse(clientConnection,selectionKey, response);
             } catch (Exception e) {
-                throw new RuntimeException(e);
+                sendResponse(clientConnection, selectionKey, new RespError(e.getMessage()));
             }
         }
 

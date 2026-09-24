@@ -1,8 +1,8 @@
-package io.codecrafters.redis.server;
+package io.codecrafters.redis.dispatcher;
 
-import io.codecrafters.redis.dispatcher.CommandDispatcher;
 import io.codecrafters.redis.protocol.RespParser;
 import io.codecrafters.redis.protocol.RespValue;
+import io.codecrafters.redis.server.ClientConnection;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -22,6 +22,11 @@ public class ProtocolHandler {
 
         //get the client's stored information
         ClientConnection clientConnection = (ClientConnection) selectionKey.attachment();
+        if(clientConnection==null){
+            System.err.println("No attachment for readable key");
+            selectionKey.cancel();
+            return;
+        }
         SocketChannel client = clientConnection.getSocketChannel();
         ByteBuffer readBuff = clientConnection.getReadBuff();
         int bytesRead= client.read(readBuff);

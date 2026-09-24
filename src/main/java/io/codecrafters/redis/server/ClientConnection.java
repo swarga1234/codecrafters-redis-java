@@ -13,6 +13,7 @@ public final class ClientConnection {
     private final Deque<ByteBuffer> writeQueue = new ArrayDeque<>();
     private final int maxQueuedWrites = 64;
     private final int maxQueuedBytes = 64 * 1024; // total no of bytes the write queue can hold
+    private int cachedOutstandingBytes=0;
 
     public ClientConnection(SocketChannel socketChannel) {
         this.socketChannel = socketChannel;
@@ -23,6 +24,9 @@ public final class ClientConnection {
     }
 
     public SocketChannel getSocketChannel() {
+        if(this.socketChannel==null){
+            throw new RuntimeException("Socket channel is null");
+        }
         return socketChannel;
     }
 
@@ -34,14 +38,17 @@ public final class ClientConnection {
     public boolean enqueueWrite(ByteBuffer buffer){
         //adding response to be sent to the client
         //buffer is in read mode hence remaining indicates how many bytes left to be read in the buffer
-        int bytes = buffer.remaining();
-        if(outstandingBytes()+bytes>maxQueuedBytes){
-            return false;
-        }
+
         if(writeQueue.size()>=maxQueuedWrites) {
             return false;
         }
+        int bytes = buffer.remaining();
+        if(bytes > maxQueuedBytes - cachedOutstandingBytes){
+            return false;
+        }
+        
         writeQueue.addLast(buffer);
+        cachedOutstandingBytes+=bytes;
         return true;
     }
 
@@ -74,6 +81,7 @@ public final class ClientConnection {
             if(head==null){
                 break;
             }
+            int before = head.remaining();
             //Tries to write to the channel.
             channel.write(head);
             //If the buffer was completely written then hasRemain should return false and pointer should move to next buffer. Else the loop breaks
@@ -81,11 +89,13 @@ public final class ClientConnection {
                 break;
             }
             writeQueue.removeFirst();
+            cachedOutstandingBytes-=before;
         }
     }
 
     public void close() {
         try { socketChannel.close(); } catch (IOException ignored) {}
         writeQueue.clear();
+        cachedOutstandingBytes=0;
     }
 }

@@ -1,4 +1,6 @@
-package io.codecrafters.redis.server;
+package io.codecrafters.redis.dispatcher;
+
+import io.codecrafters.redis.server.ClientConnection;
 
 import java.io.IOException;
 import java.nio.channels.SelectionKey;
@@ -8,6 +10,11 @@ public class ResponseWriter {
 
     public void handleWrite(SelectionKey selectionKey) {
         ClientConnection clientConnection = (ClientConnection) selectionKey.attachment();
+        if(clientConnection==null){
+            System.err.println("No attachment for readable key");
+            selectionKey.cancel();
+            return;
+        }
         SocketChannel socket = clientConnection.getSocketChannel();
 
         try {

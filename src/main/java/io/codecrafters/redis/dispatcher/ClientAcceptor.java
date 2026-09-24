@@ -1,4 +1,6 @@
-package io.codecrafters.redis.server;
+package io.codecrafters.redis.dispatcher;
+
+import io.codecrafters.redis.server.ClientConnection;
 
 import java.io.IOException;
 import java.nio.channels.SelectionKey;
