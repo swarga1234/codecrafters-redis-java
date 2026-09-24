@@ -1,7 +1,6 @@
 package io.codecrafters.redis.server;
 
-import io.codecrafters.redis.protocol.RespParser;
-import io.codecrafters.redis.protocol.RespValue;
+import io.codecrafters.redis.protocol.*;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -10,6 +9,7 @@ import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Optional;
 
 /*
@@ -81,12 +81,35 @@ public class EventLoop {
                     acceptClient();
                 }
 
-                if(selectionKey.isReadable()){ //one of the connected clients has sent data
+                if(selectionKey.isValid() && selectionKey.isReadable()){ //one of the connected clients has sent data
                     readClient(selectionKey);
+                }
+
+                if(selectionKey.isValid() && selectionKey.isWritable()){
+                    handleWrite(selectionKey);
                 }
             }
 
 
+        }
+    }
+
+    private void handleWrite(SelectionKey selectionKey) {
+        ClientConnection clientConnection = (ClientConnection) selectionKey.attachment();
+        SocketChannel socket = clientConnection.getSocketChannel();
+
+        try {
+            clientConnection.writePendingTo(socket);
+        } catch (IOException e) {
+            System.err.println("Write error: " + e.getMessage());
+            selectionKey.cancel();
+            clientConnection.close();
+            return;
+        }
+
+        if (!clientConnection.hasPendingWrites()){
+            int ops= selectionKey.interestOps();
+            selectionKey.interestOps(ops & ~SelectionKey.OP_WRITE);
         }
     }
 
@@ -118,6 +141,46 @@ public class EventLoop {
         readBuff.compact();
     }
 
+    private void handleCommand(ClientConnection clientConnection, SelectionKey selectionKey, RespValue command) {
+
+        if(command instanceof RespArray arr){
+            List<RespValue> commandList = arr.values();
+            if(commandList.isEmpty()){
+                return;
+            }
+            String cmdName = extractString(commandList.getFirst()).toUpperCase();
+
+            switch (cmdName){
+                case "PING":
+                    RespValue reponse = new RespSimpleString("PONG");
+                    sendResponse(clientConnection, selectionKey, reponse);
+                    break;
+                case "ECHO":
+                    if (commandList.size() > 1) {
+                        RespValue echo = commandList.get(1);
+                        sendResponse(clientConnection, selectionKey, echo);
+                    }
+                    break;
+            }
+        }
+
+    }
+
+    private void sendResponse(ClientConnection clientConnection, SelectionKey selectionKey, RespValue resp) {
+        ByteBuffer buffer = RespWriter.encode(resp);
+        if(!clientConnection.enqueueWrite(buffer)){
+            System.err.println("Backpressure: closing client");
+            selectionKey.cancel();
+            clientConnection.close();
+            return;
+        }
+
+        int oldOps = selectionKey.interestOps();
+        selectionKey.interestOps(oldOps | SelectionKey.OP_WRITE);
+
+    }
+
+
     private void acceptClient() throws IOException {
         SocketChannel client = serverChannel.accept();
         if(client!=null){
@@ -126,5 +189,11 @@ public class EventLoop {
             client.register(selector, SelectionKey.OP_READ, clientConnection); //Selector, watch this client and tell me whenever it sends data.
             //SocketChannel + OP_READ ---> watches for data from an existing client
         }
+    }
+
+    private String extractString(RespValue val) {
+        if (val instanceof RespBulkString bs) return bs.value();
+        if (val instanceof RespSimpleString ss) return ss.value();
+        return "";
     }
 }
