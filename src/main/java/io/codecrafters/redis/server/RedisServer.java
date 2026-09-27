@@ -10,7 +10,7 @@ import java.nio.channels.ServerSocketChannel;
 public class RedisServer {
 
     private final int port;
-
+    private volatile EventLoop eventLoop;
     public RedisServer(int port) {
         this.port = port;
     }
@@ -23,11 +23,20 @@ public class RedisServer {
             serverSocketChannel.configureBlocking(false);
             serverSocketChannel.bind(new InetSocketAddress(port));
             serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT); //Selector, watch this server channel and tell me whenever a new client wants to connect.
-            EventLoop eventLoop = new EventLoop(selector, serverSocketChannel);
+            eventLoop = new EventLoop(selector, serverSocketChannel);
+            Runtime.getRuntime().addShutdownHook(new Thread(this::stop));
+            System.out.println("Redis server started on port " + port);
             eventLoop.run();
         } catch (IOException e) {
             System.out.println("IOException: " + e.getMessage());
         }
 
+    }
+
+    public void stop(){
+        if(eventLoop!=null){
+            System.out.println("Shutdown signal received");
+            eventLoop.shutdown();
+        }
     }
 }

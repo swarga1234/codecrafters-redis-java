@@ -1,18 +1,23 @@
 package io.codecrafters.redis.rediscommand;
 
+import io.codecrafters.redis.protocol.RespError;
 import io.codecrafters.redis.protocol.RespSimpleString;
 import io.codecrafters.redis.protocol.RespValue;
 
 import java.util.List;
 
-public class PingCommand implements TypicalRedisCommand{
+public class SetCommand implements TypicalRedisCommand{
     @Override
     public int getMinArgs() {
-        return 0;
+        return 1;
     }
 
     @Override
     public RespValue execute(List<RespValue> args) {
-        return new RespSimpleString("PONG");
+        if(args.isEmpty()){
+            return new RespError("ERR wrong number of arguments for 'SET' command");
+        }
+
+        return new RespSimpleString("OK");
     }
 }

@@ -15,6 +15,8 @@ public final class ClientConnection {
     private final int maxQueuedBytes = 64 * 1024; // total no of bytes the write queue can hold
     private int cachedOutstandingBytes=0;
 
+    private long lastActivityTime = System.currentTimeMillis();
+
     public ClientConnection(SocketChannel socketChannel) {
         this.socketChannel = socketChannel;
     }
@@ -91,6 +93,14 @@ public final class ClientConnection {
             writeQueue.removeFirst();
             cachedOutstandingBytes-=before;
         }
+    }
+
+    public void updateLastActivity() {
+        this.lastActivityTime = System.currentTimeMillis();
+    } 
+
+    public boolean isIdle(long timeoutMs) {
+        return System.currentTimeMillis() - lastActivityTime > timeoutMs;
     }
 
     public void close() {

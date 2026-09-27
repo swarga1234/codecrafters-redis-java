@@ -7,6 +7,11 @@ import java.util.List;
 
 public class EchoCommand implements TypicalRedisCommand{
     @Override
+    public int getMinArgs() {
+        return 1;
+    }
+
+    @Override
     public RespValue execute(List<RespValue> args) {
         if(args.isEmpty()){
             return new RespError("ERR wrong number of arguments for 'echo' command");

@@ -49,6 +49,6 @@ public class ProtocolHandler {
             dispatcher.dispatch(clientConnection, selectionKey, command);
         }
         readBuff.compact();
+        clientConnection.updateLastActivity();
     }
-
 }

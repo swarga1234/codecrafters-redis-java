@@ -30,6 +30,10 @@ public class CommandDispatcher {
 
             try {
                 TypicalRedisCommand redisCommand = CommandRegistry.getCommand(cmdName.toUpperCase());
+                if(redisCommand.getMinArgs()>commandList.size()-1){
+                    sendResponse(clientConnection, selectionKey, new RespError("Too few arguments for command: "+ redisCommand));
+                    return;
+                }
                 RespValue response = redisCommand.execute(commandList.subList(1, commandList.size()));
                 sendResponse(clientConnection,selectionKey, response);
             } catch (Exception e) {

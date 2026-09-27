@@ -1,8 +1,6 @@
 package io.codecrafters.redis.factory;
 
-import io.codecrafters.redis.rediscommand.EchoCommand;
-import io.codecrafters.redis.rediscommand.PingCommand;
-import io.codecrafters.redis.rediscommand.TypicalRedisCommand;
+import io.codecrafters.redis.rediscommand.*;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -13,6 +11,8 @@ public class CommandRegistry {
     static {
         COMMANDS.put("PING", PingCommand.class);
         COMMANDS.put("ECHO", EchoCommand.class);
+        COMMANDS.put("SET", SetCommand.class);
+        COMMANDS.put("GET", GetCommand.class);
         //add more classes for commands
     }
 

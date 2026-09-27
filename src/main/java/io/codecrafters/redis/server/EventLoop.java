@@ -59,6 +59,11 @@ public class EventLoop {
     private final ProtocolHandler protocolHandler;
     private final ResponseWriter responseWriter;
 
+    private volatile boolean running=true;
+    private long lastIdleCheckTime = System.currentTimeMillis();
+    private static final long IDLE_CHECK_INTERVAL_MS = 30_000;  // Check every 30 seconds
+    private static final long IDLE_TIMEOUT_MS = 60_000;  // Close if idle > 60 seconds
+
     public EventLoop(Selector selector, ServerSocketChannel serverChannel) {
         this.selector = selector;
         this.clientAcceptor = new ClientAcceptor(selector, serverChannel);
@@ -67,10 +72,17 @@ public class EventLoop {
     }
 
     public void run() throws IOException {
-        while (true){
+        while (running){
 
-            //waits until at least one registered channel is ready. It blocks efficiently, so the CPU is not constantly busy checking.
-            selector.select();
+            //waits until at least one registered channel is ready with 5 second timeout for idle checks.
+            selector.select(5000);
+            
+            //Check for idle connections periodically
+            if(System.currentTimeMillis() - lastIdleCheckTime > IDLE_CHECK_INTERVAL_MS) {
+                closeIdleConnections(IDLE_TIMEOUT_MS);
+                lastIdleCheckTime = System.currentTimeMillis();
+            }
+            
             //returns the channels that became ready.
             Iterator<SelectionKey> keys = selector.selectedKeys().iterator();
 
@@ -95,6 +107,21 @@ public class EventLoop {
 
 
         }
+    }
+
+    private void closeIdleConnections(long timeoutMs) {
+        for(SelectionKey key : selector.keys()) {
+            if(key.isValid() && key.attachment() instanceof ClientConnection conn) {
+                if(conn.isIdle(timeoutMs)) {
+                    key.cancel();
+                    conn.close();
+                }
+            }
+        }
+    }
+
+    public void shutdown(){
+        running=false;
     }
 
 
