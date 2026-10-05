@@ -11,7 +11,7 @@ public class ByteTest {
 
         buffer.put("hello".getBytes(StandardCharsets.UTF_8));
         //System.out.println(buffer.toString());
-        System.out.printf("after put \"hello\": pos=%d limit=%d remaining=%d%n", buffer.position(), buffer.limit(), buffer.remaining());
+        System.out.printf("after put \"hello\": pos=%d limit=%d remaining=%d capacity=%d%n", buffer.position(), buffer.limit(), buffer.remaining(), buffer.capacity());
 
         buffer.flip();
         System.out.printf("after flip: pos=%d limit=%d remaining=%d%n", buffer.position(), buffer.limit(), buffer.remaining());

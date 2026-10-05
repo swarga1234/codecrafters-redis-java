@@ -70,11 +70,10 @@ public final class RespWriter {
         return buffer;
     }
 
-    public static ByteBuffer getRespBulkString(String value) {
-        if(value==null){
+    public static ByteBuffer getRespBulkString(byte[] data) {
+        if(data==null){
             return getRespNullBulkString();
         }
-        byte[] data = value.getBytes(StandardCharsets.UTF_8);
         byte[] header = ("$"+data.length+"\r\n").getBytes(StandardCharsets.UTF_8);
         ByteBuffer buffer = ByteBuffer.allocate(header.length+data.length+2);
         buffer.put(header);

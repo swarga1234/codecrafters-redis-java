@@ -2,14 +2,23 @@ package io.codecrafters.redis.server;
 
 import io.codecrafters.redis.dispatcher.ClientAcceptor;
 import io.codecrafters.redis.dispatcher.CommandDispatcher;
-import io.codecrafters.redis.dispatcher.ProtocolHandler;
 import io.codecrafters.redis.dispatcher.ResponseWriter;
+import io.codecrafters.redis.server.client.ClientConnection;
+import io.codecrafters.redis.server.client.WriteQueueManager;
+import io.codecrafters.redis.server.worker.ParseTask;
+import io.codecrafters.redis.server.worker.ParsedCommand;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /*
 
@@ -56,18 +65,28 @@ public class EventLoop {
 
     private final Selector selector;
     private final ClientAcceptor clientAcceptor;
-    private final ProtocolHandler protocolHandler;
+    //private final ProtocolHandler protocolHandler;
     private final ResponseWriter responseWriter;
+    private final CommandDispatcher dispatcher;
+
+    private final Queue<ParsedCommand> globalParsedCommandQueue = new ConcurrentLinkedQueue<>();
+    private final LinkedHashSet<ClientConnection> clientsWithFreshWrites = new LinkedHashSet<>();
+
+    private static final int AVAILABLE_CPU_CORES = Runtime.getRuntime().availableProcessors();
+    private static final int WORKER_THREADS = (int) Math.max(AVAILABLE_CPU_CORES, AVAILABLE_CPU_CORES*1.5);
+    ExecutorService executorService = Executors.newFixedThreadPool(WORKER_THREADS);
 
     private volatile boolean running=true;
     private long lastIdleCheckTime = System.currentTimeMillis();
+    private long lastSlowClientCheckTime = System.currentTimeMillis();
     private static final long IDLE_CHECK_INTERVAL_MS = 30_000;  // Check every 30 seconds
     private static final long IDLE_TIMEOUT_MS = 60_000;  // Close if idle > 60 seconds
 
     public EventLoop(Selector selector, ServerSocketChannel serverChannel) {
         this.selector = selector;
+        this.dispatcher = new CommandDispatcher();
         this.clientAcceptor = new ClientAcceptor(selector, serverChannel);
-        this.protocolHandler = new ProtocolHandler(new CommandDispatcher());
+        //this.protocolHandler = new ProtocolHandler(new CommandDispatcher());
         this.responseWriter= new ResponseWriter();
     }
 
@@ -75,6 +94,7 @@ public class EventLoop {
         while (running){
 
             //waits until at least one registered channel is ready with 5 second timeout for idle checks.
+            //System.out.println("Total worker threads: "+WORKER_THREADS);
             selector.select(5000);
             
             //Check for idle connections periodically
@@ -82,6 +102,12 @@ public class EventLoop {
                 closeIdleConnections(IDLE_TIMEOUT_MS);
                 lastIdleCheckTime = System.currentTimeMillis();
             }
+            // Check slow clients (same interval)
+            if(System.currentTimeMillis() - lastSlowClientCheckTime > IDLE_CHECK_INTERVAL_MS) {
+                closeSlowClients();
+                lastSlowClientCheckTime = System.currentTimeMillis();
+            }
+
             
             //returns the channels that became ready.
             Iterator<SelectionKey> keys = selector.selectedKeys().iterator();
@@ -97,7 +123,8 @@ public class EventLoop {
                 }
 
                 if(selectionKey.isValid() && selectionKey.isReadable()){ //one of the connected clients has sent data
-                    protocolHandler.handle(selectionKey);
+                    //protocolHandler.handle(selectionKey);
+                    handleReadable(selectionKey);
                 }
 
                 if(selectionKey.isValid() && selectionKey.isWritable()){
@@ -105,7 +132,52 @@ public class EventLoop {
                 }
             }
 
+             drainCommandQueue();
 
+            // Re-enable reads for clients that have completed backpressure
+            reEnableReadsForClientsAsNeeded();
+
+            // Flush Clients with Fresh Writes before closing
+            flushClientsWithFreshWrites();
+
+            
+        }
+        executorService.shutdown();
+    }
+
+    private void handleReadable(SelectionKey selectionKey) {
+
+        //get the client's stored information
+        ClientConnection clientConnection = (ClientConnection) selectionKey.attachment();
+        if(clientConnection==null){
+            System.err.println("No attachment for readable key");
+            selectionKey.cancel();
+            return;
+        }
+
+        selectionKey.interestOps(selectionKey.interestOps() & ~SelectionKey.OP_READ); //Disable read for the particular client
+        executorService.submit(new ParseTask(clientConnection,selector,globalParsedCommandQueue));
+    }
+
+    private void reEnableReadsForClientsAsNeeded() {
+        for(SelectionKey key : selector.keys() ){
+            if(key.isValid() && key.attachment() instanceof ClientConnection clientConnection){
+                if(clientConnection.isNeedsReEnable()){
+                    int ops = key.interestOps();
+                    key.interestOps(ops | SelectionKey.OP_READ);
+                    clientConnection.setNeedsReEnable(false);
+                }
+            }
+        }
+    }
+
+    private void drainCommandQueue() {
+        while (!globalParsedCommandQueue.isEmpty()){
+            ParsedCommand parsedCommand = globalParsedCommandQueue.poll();
+            if(parsedCommand==null){
+                throw new RuntimeException("Parsed Command can't be null!");
+            }
+            dispatcher.dispatch(parsedCommand.clientConnection(), parsedCommand.clientConnection().getSelectionKey(), parsedCommand.command(), clientsWithFreshWrites);
         }
     }
 
@@ -118,6 +190,77 @@ public class EventLoop {
                 }
             }
         }
+    }
+
+    private void closeSlowClients(){
+        long now =System.currentTimeMillis();
+        for(SelectionKey selectionKey: selector.keys()){
+            if(selectionKey.attachment() instanceof ClientConnection clientConnection){
+                long outstandingBytes = clientConnection.getOutstandingBytes();
+                long timeSinceWrite = now - clientConnection.getLastWriteTime();
+
+                if(outstandingBytes > WriteQueueManager.MAX_QUEUED_BYTES && timeSinceWrite > 5000){
+                    System.err.println("Closing slow client: " + outstandingBytes + " bytes stuck for " + timeSinceWrite + "ms");
+                    selectionKey.cancel();
+                    clientConnection.close();
+                }
+            }
+        }
+    }
+
+    private void flushClientsWithFreshWrites() {
+//        for(SelectionKey key : selector.keys() ){
+//            if(key.isValid() && key.attachment() instanceof ClientConnection clientConnection){
+//                long bytesBefore = clientConnection.getOutstandingBytes();
+//                if(clientConnection.isHasFreshPendingWrites()){
+//                    try {
+//                        clientConnection.writePendingTo(clientConnection.getSocketChannel());
+//                    } catch (IOException e) {
+//                        System.err.println("Write error: " + e.getMessage());
+//                        key.cancel();
+//                        clientConnection.close();
+//                        continue;
+//                        //return;
+//                    }
+//                    long bytesAfter = clientConnection.getOutstandingBytes();
+//                    if(bytesAfter<bytesBefore){
+//                        clientConnection.updateLastWriteTime();
+//                    }
+//                    if(clientConnection.hasPendingWrites()){
+//                        key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+//                    }else {
+//                        key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE );
+//                    }
+//                    clientConnection.setHasFreshPendingWrites(false);
+//                }
+//            }
+//        }
+        for (ClientConnection clientConnection : clientsWithFreshWrites) {
+            long bytesBefore = clientConnection.getOutstandingBytes();
+            SelectionKey key = clientConnection.getSelectionKey();
+            if (clientConnection.isHasFreshPendingWrites()) {
+                try {
+                    clientConnection.writePendingTo(clientConnection.getSocketChannel());
+                } catch (IOException e) {
+                    System.err.println("Write error: " + e.getMessage());
+                    key.cancel();
+                    clientConnection.close();
+                    continue;
+                    //return;
+                }
+                long bytesAfter = clientConnection.getOutstandingBytes();
+                if (bytesAfter < bytesBefore) {
+                    clientConnection.updateLastWriteTime();
+                }
+                if (clientConnection.hasPendingWrites()) {
+                    key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+                } else {
+                    key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+                }
+                clientConnection.setHasFreshPendingWrites(false);
+            }
+        }
+        clientsWithFreshWrites.clear();
     }
 
     public void shutdown(){

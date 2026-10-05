@@ -1,6 +1,6 @@
 package io.codecrafters.redis.dispatcher;
 
-import io.codecrafters.redis.server.ClientConnection;
+import io.codecrafters.redis.server.client.ClientConnection;
 
 import java.io.IOException;
 import java.nio.channels.SelectionKey;
@@ -16,7 +16,7 @@ public class ResponseWriter {
             return;
         }
         SocketChannel socket = clientConnection.getSocketChannel();
-
+        long bytesBefore = clientConnection.getOutstandingBytes();
         try {
             clientConnection.writePendingTo(socket);
         } catch (IOException e) {
@@ -24,6 +24,11 @@ public class ResponseWriter {
             selectionKey.cancel();
             clientConnection.close();
             return;
+        }
+        clientConnection.setHasFreshPendingWrites(false);
+        long bytesAfter = clientConnection.getOutstandingBytes();
+        if(bytesAfter<bytesBefore){
+            clientConnection.updateLastWriteTime();
         }
 
         if (!clientConnection.hasPendingWrites()){

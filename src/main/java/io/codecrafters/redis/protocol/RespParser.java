@@ -3,7 +3,6 @@ package io.codecrafters.redis.protocol;
 import io.codecrafters.redis.exception.IncompleteRespException;
 
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -13,6 +12,13 @@ public final class RespParser {
     public Optional<RespValue> parse(ByteBuffer buffer){
         buffer.mark();
         try{
+            while (buffer.hasRemaining()) {
+                byte next = buffer.get(buffer.position());
+                if(next!='\r' && next!='\n'){
+                    break;
+                }
+                buffer.get();
+            }
             return Optional.of(parseValue(buffer));
         }catch (IncompleteRespException e){
             buffer.reset();
@@ -60,7 +66,7 @@ public final class RespParser {
         readByte(buffer); //reads \r
         readByte(buffer); //reads \n
 
-        return new RespBulkString(new String(bytes, StandardCharsets.UTF_8));
+        return new RespBulkString(bytes);
     }
 
     private byte readByte(ByteBuffer buffer){
